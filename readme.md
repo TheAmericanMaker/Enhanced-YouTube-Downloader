@@ -11,13 +11,16 @@ A Python-based command line tool for downloading YouTube videos with advanced fe
 - **Subtitles & Thumbnails**: Optionally download subtitles and thumbnails, with options for embedding.
 - **Progress Bar**: Real-time download progress displayed using the `tqdm` progress bar.
 - **Logging**: Detailed logging for tracking download progress and troubleshooting.
-- **Configurable Options**: Easily adjust quality, output path, retry attempts, file naming conventions, and more via a configurable options dataclass.
+- **Queue Management**: Add multiple downloads to a queue and process them sequentially.
+- **Batch Processing**: Load URLs from a file for bulk downloading.
+- **Configurable Options**: Easily adjust quality, output path, retry attempts, file naming conventions, and more.
 
 ## Requirements
 
 - **Python 3.7+**
 - [**yt-dlp**](https://github.com/yt-dlp/yt-dlp)
 - [**tqdm**](https://github.com/tqdm/tqdm)
+- [**colorama**](https://pypi.org/project/colorama/)
 - [**FFmpeg**](https://ffmpeg.org/) (required for audio extraction and additional post-processing)
 
 ## Installation
@@ -27,7 +30,7 @@ Clone the repository and install the required dependencies:
 ```bash
 git clone https://github.com/yourusername/Enhanced-YouTube-Downloader.git
 cd Enhanced-YouTube-Downloader
-pip install yt-dlp tqdm
+pip install yt-dlp tqdm colorama
 ```
 
 > **Note:** To use audio extraction and embed subtitles, ensure that [FFmpeg](https://ffmpeg.org/) is installed and available in your system's PATH.
@@ -51,8 +54,29 @@ Once running, you can use the following commands:
 - **formats `<url>`**  
   List all available formats for the given YouTube video.
 
-- **playlist `<url>`**  
-  Download an entire playlist using the provided playlist URL.
+- **playlist `<url>` [items]**  
+  Download an entire playlist using the provided playlist URL. Optionally specify items to download (e.g., '1-5' or '3,7,9').
+
+- **subtitles `<url>` [lang]**  
+  Download video with subtitles. Optionally specify languages (e.g., 'en,fr').
+
+- **queue `<url>` [quality]**  
+  Add a video to the download queue.
+
+- **start-queue**  
+  Start processing the download queue.
+
+- **show-queue**  
+  Display the current status of the download queue.
+
+- **clear-queue**  
+  Clear all items from the download queue.
+
+- **batch `<file>`**  
+  Load URLs from a file for batch downloading.
+
+- **set-path `<path>`**  
+  Set the download directory path.
 
 - **help**  
   Display the list of available commands.
@@ -73,10 +97,12 @@ This command will download the video from the given URL at 1080p quality.
 The project is encapsulated in a single file, `youtube_downloader.py`, which includes:
 
 - **DownloadOptions Dataclass**: Stores various configuration options such as video quality, output path, and flags for audio-only mode, subtitles, thumbnails, and playlist downloads.
+- **QueueItem Dataclass**: Represents an item in the download queue with status tracking.
 - **YouTubeDownloader Class**:  
   - Sets up logging and default configurations.
   - Provides methods to fetch video information, list available formats, manage download progress with a `tqdm` progress bar, and execute downloads with support for retries.
-- **Interactive CLI**: A user-friendly command line interface that processes user commands (download, audio, formats, playlist, help, quit) and interacts with the downloader.
+  - Implements queue management for batch processing.
+- **Interactive CLI**: A user-friendly command line interface that processes user commands and interacts with the downloader.
 
 ## License
 

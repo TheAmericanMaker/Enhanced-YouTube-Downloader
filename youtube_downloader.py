@@ -8,6 +8,8 @@ from colorama import init, Fore, Style
 from queue import Queue
 from threading import Thread
 import time
+import platform
+import pathlib
 
 # Initialize colorama for cross-platform color support
 init()
@@ -118,11 +120,13 @@ class YouTubeDownloader:
         # Configure output path
         if options.output_path:
             try:
-                os.makedirs(options.output_path, exist_ok=True)
-                if not os.access(options.output_path, os.W_OK):
-                    self.logger.error(f"No write permission for directory: {options.output_path}")
+                # Handle ~ in path for cross-platform compatibility
+                output_path = os.path.expanduser(options.output_path)
+                os.makedirs(output_path, exist_ok=True)
+                if not os.access(output_path, os.W_OK):
+                    self.logger.error(f"No write permission for directory: {output_path}")
                     return False
-                download_options['outtmpl'] = os.path.join(options.output_path, options.filename_template)
+                download_options['outtmpl'] = os.path.join(output_path, options.filename_template)
             except Exception as e:
                 self.logger.error(f"Error with output directory: {str(e)}")
                 return False
@@ -144,13 +148,30 @@ class YouTubeDownloader:
                 download_options['format'] = f"bestvideo[height<={resolution}]+bestaudio/best"
             except ValueError:
                 download_options['format'] = 'best'
+        
+        # Configure subtitles if requested
+        if options.download_subtitles:
+            download_options['writesubtitles'] = True
+            download_options['writeautomaticsub'] = True
+            if options.subtitle_languages:
+                download_options['subtitleslangs'] = options.subtitle_languages
+        
+        # Configure thumbnails if requested
+        if options.download_thumbnails:
+            download_options['writethumbnail'] = True
+            download_options['postprocessors'].append({'key': 'EmbedThumbnail'})
+        
+        # Configure playlist options
+        if options.playlist:
+            if options.playlist_items:
+                download_options['playliststart'], download_options['playlistend'] = self._parse_playlist_items(options.playlist_items)
 
         # Add progress hook
         download_options['progress_hooks'] = [self.create_progress_bar]
 
         # Only show URL and initial download path
         print(f"Download URL: {url}")
-        print(f"Downloading to: {download_options['outtmpl']}")
+        print(f"Downloading to: {os.path.expanduser(download_options['outtmpl'])}")
         print()  # Blank line before progress
 
         # Attempt download with retries
@@ -165,10 +186,22 @@ class YouTubeDownloader:
                     return False
                 continue
 
-        # After download completes, show the actual filename that was downloaded
-        actual_filename = os.path.basename(download_options['outtmpl'])
-        print(f"\nDownloaded: {actual_filename}")
-        return True
+        return False
+
+    def _parse_playlist_items(self, playlist_items: str) -> tuple:
+        """Parse playlist items range (e.g., '1-5' or '3,7,9')"""
+        try:
+            if '-' in playlist_items:
+                start, end = playlist_items.split('-')
+                return int(start), int(end)
+            elif ',' in playlist_items:
+                items = [int(i) for i in playlist_items.split(',')]
+                return min(items), max(items)
+            else:
+                item = int(playlist_items)
+                return item, item
+        except ValueError:
+            return 1, 999999  # Default to all items
 
     def process_queue(self):
         """Process the download queue in a separate thread"""
@@ -211,6 +244,9 @@ def interactive_cli():
     """Enhanced interactive CLI interface"""
     downloader = YouTubeDownloader()
     
+    # Determine default download path based on OS
+    default_path = os.path.join(os.path.expanduser("~"), "Downloads")
+    
     def print_help():
         print(f"\n{Fore.CYAN}Available commands:{Style.RESET_ALL}")
         print("  download <url> [quality] - Download video")
@@ -220,12 +256,18 @@ def interactive_cli():
         print("  show-queue             - Show queue status")
         print("  clear-queue            - Clear download queue")
         print("  formats <url>           - List available formats")
+        print("  playlist <url> [items]  - Download playlist (items optional: '1-5' or '3,7,9')")
+        print("  subtitles <url> [lang]  - Download with subtitles (lang optional: 'en,fr')")
         print("  batch <file>           - Load URLs from file")
+        print("  set-path <path>         - Set download path")
         print("  help                    - Show this help")
         print("  quit                    - Exit program")
 
     downloader.print_status("YouTube Downloader Interactive CLI", 'info')
     print("Type 'help' for available commands")
+    
+    # Current download path
+    current_path = default_path
 
     while True:
         try:
@@ -275,21 +317,57 @@ def interactive_cli():
                         downloader.print_status(f"Added {len(urls)} URLs from {command[1]}", 'success')
                 except FileNotFoundError:
                     downloader.print_status(f"File not found: {command[1]}", 'error')
+            elif command[0] == "set-path" and len(command) > 1:
+                path = command[1]
+                expanded_path = os.path.expanduser(path)
+                try:
+                    os.makedirs(expanded_path, exist_ok=True)
+                    if os.access(expanded_path, os.W_OK):
+                        current_path = expanded_path
+                        downloader.print_status(f"Download path set to: {current_path}", 'success')
+                    else:
+                        downloader.print_status(f"No write permission for: {expanded_path}", 'error')
+                except Exception as e:
+                    downloader.print_status(f"Error setting path: {str(e)}", 'error')
             elif command[0] == "download" and len(command) > 1:
                 url = command[1]
                 quality = command[2] if len(command) > 2 else 'best'
-                options = DownloadOptions(quality=quality, output_path="~/Downloads")
+                options = DownloadOptions(quality=quality, output_path=current_path)
                 if downloader.download(url, options):
                     downloader.print_status("Download completed successfully!", 'success')
                 else:
                     downloader.print_status("Download failed!", 'error')
             elif command[0] == "audio" and len(command) > 1:
                 url = command[1]
-                options = DownloadOptions(audio_only=True, output_path="~/Downloads")
+                options = DownloadOptions(audio_only=True, output_path=current_path)
                 if downloader.download(url, options):
                     downloader.print_status("Audio download completed successfully!", 'success')
                 else:
                     downloader.print_status("Audio download failed!", 'error')
+            elif command[0] == "playlist" and len(command) > 1:
+                url = command[1]
+                playlist_items = command[2] if len(command) > 2 else None
+                options = DownloadOptions(
+                    output_path=current_path,
+                    playlist=True,
+                    playlist_items=playlist_items
+                )
+                if downloader.download(url, options):
+                    downloader.print_status("Playlist download completed successfully!", 'success')
+                else:
+                    downloader.print_status("Playlist download failed!", 'error')
+            elif command[0] == "subtitles" and len(command) > 1:
+                url = command[1]
+                langs = command[2].split(',') if len(command) > 2 else None
+                options = DownloadOptions(
+                    output_path=current_path,
+                    download_subtitles=True,
+                    subtitle_languages=langs
+                )
+                if downloader.download(url, options):
+                    downloader.print_status("Download with subtitles completed successfully!", 'success')
+                else:
+                    downloader.print_status("Download with subtitles failed!", 'error')
             else:
                 print("Invalid command. Type 'help' for usage.")
 
@@ -297,42 +375,6 @@ def interactive_cli():
             downloader.print_status("\nUse 'quit' to exit properly", 'warning')
         except Exception as e:
             downloader.print_status(f"Error: {str(e)}", 'error')
-
-def download_video(url, output_path):
-    try:
-        yt = YouTube(url)
-        stream = yt.streams.get_highest_resolution()
-        
-        # Show initial information
-        print(f"Download URL: {url}")
-        print(f"Downloading to: {output_path}")
-        print()
-        
-        # Get the filesize for the progress bar
-        filesize = stream.filesize
-        
-        with tqdm(
-            total=filesize,  # Use filesize instead of total_size
-            unit='iB',
-            unit_scale=True,
-            unit_divisor=1024,
-            desc="",
-            leave=True,
-            ncols=100,
-            bar_format='{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]'
-        ) as pbar:
-            # Download with progress callback
-            stream.download(
-                output_path=os.path.dirname(output_path),
-                filename=os.path.basename(output_path),
-                progress_callback=lambda chunk, file_handle, bytes_remaining: pbar.update(len(chunk))
-            )
-            
-        actual_filename = stream.default_filename
-        print(f"\nDownloaded: {actual_filename}")
-        
-    except Exception as e:
-        print(f"\nError: {str(e)}")
 
 if __name__ == "__main__":
     interactive_cli()
