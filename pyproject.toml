@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "enhanced-youtube-downloader"
+version = "0.1.0"
+description = "Enhanced command-line YouTube downloader built on yt-dlp"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "TheAmericanMaker" }]
+keywords = ["youtube", "video", "audio", "downloader", "yt-dlp", "cli", "mp3"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "tqdm>=4.60.0",
+    "yt-dlp>=2024.4.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+eyd = "enhanced_youtube_downloader.cli:main"
+
+[project.urls]
+"Bug Tracker" = "https://github.com/TheAmericanMaker/Enhanced-YouTube-Downloader/issues"
+Changelog = "https://github.com/TheAmericanMaker/Enhanced-YouTube-Downloader/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/TheAmericanMaker/Enhanced-YouTube-Downloader"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+source = ["enhanced_youtube_downloader"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "C4",  # flake8-comprehensions
+    "RUF",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["enhanced_youtube_downloader"]
