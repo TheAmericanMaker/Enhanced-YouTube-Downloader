@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "enhanced-youtube-downloader"
-version = "0.1.0"
+version = "0.2.0"
 description = "Enhanced command-line YouTube downloader built on yt-dlp"
 readme = "README.md"
 requires-python = ">=3.9"

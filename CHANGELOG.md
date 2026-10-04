@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Cookie / auth support** for age-restricted, membership, and region-locked
+  content: `--cookies FILE` (Netscape file) and `--cookies-from-browser
+  BROWSER[+PROFILE]` (reads directly from the local browser).
+- **Auto-generated subtitles** — `--write-auto-sub` writes ASR captions when a
+  video has no manual subtitles.
+- **`--json`** on `info` and `formats` for machine-readable output.
+- **Parallel downloads** — `--concurrency N` fetches N video fragments at once
+  for large files.
+- **`--proxy URL`** to route requests through a proxy/VPN.
+- **`--no-overwrites`** to skip files that already exist.
+- **Interactive shell:** a `cookies [file]` command, and the shell now builds
+  options through the same code path as the CLI so it honors the full flag set.
+- `DownloadResult` now exposes `filenames` (every file written) and `failed`
+  (per-item error messages) for playlist runs.
+- **Config file** — persistent defaults in `~/.config/eyd/config.ini`
+  (auto-loaded when present) or via `--config PATH`. Any flag passed on the
+  command line overrides the config file.
+
+### Changed
+
+- Playlist downloads that have some failures now report exactly which items
+  failed and why (previously a partial playlist was reported as fully
+  successful). A run with no files downloaded is now reported as a failure.
+- The `--subtitle-langs` flag is now an error when passed without
+  `--subtitles` or `--write-auto-sub` (it was silently ignored before).
+- The CLI and interactive shell share a single options builder, so they can no
+  longer drift apart.
+- The progress bar no longer leaves a stale line behind between playlist
+  files.
+
+### Fixed
+
+- `--cookies-from-browser` (and the `cookies_from_browser` option) now passes
+  yt-dlp the required `(browser, profile, keyring, container)` tuple instead of
+  a bare string, which previously unpacked into characters and crashed at
+  cookie-load time with a `TypeError` / `CookieLoadError`.
+
 ## [0.1.0] - 2026-09-05
 
 First public release.

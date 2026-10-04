@@ -21,6 +21,12 @@ class FakeYoutubeDL:
     raise_download_error: ClassVar[Exception | None] = None
     raise_info_error: ClassVar[Exception | None] = None
     info_override: ClassVar[dict | None] = None
+    # Files to hand to post_hooks (default: a single file).
+    post_hook_files: ClassVar[list | None] = None
+    # Error messages to report via report_error (simulates failed playlist items).
+    failed_errors: ClassVar[list] = []
+    # Return code from download() (0 = all good, 1 = at least one failure).
+    retcode: ClassVar[int] = 0
 
     def __init__(self, params):
         self.params = params
@@ -40,23 +46,35 @@ class FakeYoutubeDL:
             return self.info_override
         return {"title": "Fake Title", "formats": []}
 
+    def report_error(self, message, *args, **kwargs):
+        # No-op stand-in for yt-dlp's error printer.
+        pass
+
     def download(self, urls):
         if self.raise_download_error is not None:
             raise self.raise_download_error
-        filename = "Fake Title [abc123].mp4"
-        self.finished_files.append(filename)
-        for hook in self.params.get("progress_hooks", []):
-            hook(
-                {
-                    "status": "downloading",
-                    "filename": filename,
-                    "downloaded_bytes": 50,
-                    "total_bytes": 100,
-                }
-            )
-            hook({"status": "finished", "filename": filename})
-        for hook in self.params.get("post_hooks", []):
-            hook(filename)
+        files = (
+            self.post_hook_files
+            if self.post_hook_files is not None
+            else ["Fake Title [abc123].mp4"]
+        )
+        for filename in files:
+            self.finished_files.append(filename)
+            for hook in self.params.get("progress_hooks", []):
+                hook(
+                    {
+                        "status": "downloading",
+                        "filename": filename,
+                        "downloaded_bytes": 50,
+                        "total_bytes": 100,
+                    }
+                )
+                hook({"status": "finished", "filename": filename})
+            for hook in self.params.get("post_hooks", []):
+                hook(filename)
+        for err in self.failed_errors:
+            self.report_error(err)
+        return self.retcode
 
 
 @pytest.fixture
@@ -65,5 +83,8 @@ def fake_yt_dlp(monkeypatch):
     FakeYoutubeDL.raise_download_error = None
     FakeYoutubeDL.raise_info_error = None
     FakeYoutubeDL.info_override = None
+    FakeYoutubeDL.post_hook_files = None
+    FakeYoutubeDL.failed_errors = []
+    FakeYoutubeDL.retcode = 0
     monkeypatch.setattr(dl_module, "yt_dlp", SimpleNamespace(YoutubeDL=FakeYoutubeDL))
     return FakeYoutubeDL

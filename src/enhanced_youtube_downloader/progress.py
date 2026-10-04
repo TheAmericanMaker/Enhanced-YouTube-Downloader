@@ -43,6 +43,7 @@ class ProgressBar:
                     unit="B",
                     unit_scale=True,
                     desc=self._description,
+                    leave=False,
                 )
             downloaded = d.get("downloaded_bytes") or 0
             delta = downloaded - self._reported

@@ -5,13 +5,13 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 
 import yt_dlp
 
-from .options import DownloadOptions, format_selector
+from .options import DownloadOptions, cookie_browser_to_tuple, format_selector
 from .progress import ProgressBar
 
 logger = logging.getLogger(__name__)
@@ -21,12 +21,49 @@ __all__ = ["DownloadResult", "YouTubeDownloader", "validate_url"]
 
 @dataclass
 class DownloadResult:
-    """Outcome of a download attempt."""
+    """Outcome of a download attempt.
+
+    Attributes:
+        ok: True when the run completed successfully or at least partially
+            (for playlists) with at least one file written.
+        requested_url: the URL that was requested.
+        filename: the most recently written file, or None.
+        filenames: every file written during the run.
+        error: a short human-readable error, if the run failed.
+        failed: error messages for items that failed (meaningful for
+            playlists where individual entries can fail independently).
+    """
 
     ok: bool
     requested_url: str
     filename: str | None = None
+    filenames: list[str] = field(default_factory=list)
     error: str | None = None
+    failed: list[str] = field(default_factory=list)
+
+
+def _tracking_downloader_class():
+    """Build a ``yt_dlp.YoutubeDL`` subclass that records error messages.
+
+    Created at call time (not import time) so it inherits from whichever
+    ``yt_dlp.YoutubeDL`` is currently bound -- the real one, or a test fake.
+
+    With ``ignoreerrors`` enabled (playlist mode), yt-dlp reports each failed
+    entry via :meth:`report_error` instead of raising. Recording those lets us
+    tell the user exactly which items failed and why.
+    """
+
+    class _TrackingYoutubeDL(yt_dlp.YoutubeDL):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.error_messages: list[str] = []
+
+        def report_error(self, message: Any, *args: Any, **kwargs: Any) -> None:
+            self.error_messages.append(str(message))
+            if hasattr(super(), "report_error"):
+                super().report_error(message, *args, **kwargs)
+
+    return _TrackingYoutubeDL
 
 
 def validate_url(url: str) -> str:
@@ -122,6 +159,19 @@ class YouTubeDownloader:
             "noplaylist": not options.playlist,
         }
 
+        if options.cookie_file:
+            opts["cookiefile"] = options.cookie_file
+        if options.cookies_from_browser:
+            # yt-dlp unpacks this value with `*`, so it must be a tuple, not a
+            # string (a string unpacks to its characters and always crashes).
+            opts["cookiesfrombrowser"] = cookie_browser_to_tuple(options.cookies_from_browser)
+        if options.proxy:
+            opts["proxy"] = options.proxy
+        if options.concurrent_fragments:
+            opts["concurrent_fragment_downloads"] = options.concurrent_fragments
+        if options.no_overwrites:
+            opts["nooverwrites"] = True
+
         if options.audio_only:
             opts["postprocessors"] = [
                 {
@@ -136,6 +186,12 @@ class YouTubeDownloader:
             opts["subtitleslangs"] = list(options.subtitle_languages)
             if not options.audio_only:
                 opts.setdefault("postprocessors", []).append({"key": "FFmpegEmbedSubtitle"})
+
+        if options.write_auto_subs:
+            opts["writeautomaticsub"] = True
+            opts["subtitleslangs"] = list(options.subtitle_languages)
+            if options.download_subtitles:
+                opts["writesubtitles"] = True
 
         if options.download_thumbnails:
             opts["writethumbnail"] = True
@@ -175,6 +231,7 @@ class YouTubeDownloader:
 
         ydl_opts = self.build_ydl_options(options)
         finished: list[str] = []
+        failed: list[str] = []
 
         def track_finished(filename: str) -> None:
             # post_hooks fire after post-processing, so the filename is final.
@@ -186,15 +243,37 @@ class YouTubeDownloader:
         ydl_opts["post_hooks"] = [track_finished]
 
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+            TrackingDL = _tracking_downloader_class()
+            ydl = TrackingDL(ydl_opts)
+            with ydl:
+                retcode = ydl.download([url])
+            failed.extend(getattr(ydl, "error_messages", []))
+            # De-duplicate while preserving order.
+            failed = list(dict.fromkeys(failed))
+            if finished:
+                return DownloadResult(
+                    ok=True,
+                    requested_url=url,
+                    filename=finished[-1],
+                    filenames=list(finished),
+                    error=None if retcode in (0, None) else "some items failed",
+                    failed=failed,
+                )
             return DownloadResult(
-                ok=True,
+                ok=False,
                 requested_url=url,
-                filename=finished[-1] if finished else None,
+                filenames=list(finished),
+                error="no files were downloaded",
+                failed=failed,
             )
         except Exception as exc:
             logger.error("Download failed for %s: %s", url, exc)
-            return DownloadResult(ok=False, requested_url=url, error=str(exc))
+            return DownloadResult(
+                ok=False,
+                requested_url=url,
+                error=str(exc),
+                filenames=list(finished),
+                failed=failed,
+            )
         finally:
             bar.close()

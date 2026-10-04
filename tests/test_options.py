@@ -6,9 +6,11 @@ import pytest
 
 from enhanced_youtube_downloader.options import (
     AUDIO_FORMATS,
+    BROWSERS,
     DownloadOptions,
     QualityError,
     format_selector,
+    parse_browser,
     parse_langs,
     parse_quality,
 )
@@ -63,6 +65,37 @@ class TestParseLangs:
         assert parse_langs("") == []
 
 
+class TestParseBrowser:
+    @pytest.mark.parametrize("browser", sorted(BROWSERS))
+    def test_valid_browsers(self, browser):
+        assert parse_browser(browser) == browser
+
+    def test_case_insensitive_and_stripped(self):
+        assert parse_browser("  Chrome ") == "chrome"
+
+    def test_profile_preserved(self):
+        assert parse_browser("chrome+Default") == "chrome+Default"
+
+    def test_profile_case_insensitive_browser(self):
+        assert parse_browser("CHROME+MyProfile") == "chrome+MyProfile"
+
+    def test_invalid_browser(self):
+        with pytest.raises(ValueError, match="unsupported browser"):
+            parse_browser("ie6")
+
+    def test_invalid_browser_with_profile(self):
+        with pytest.raises(ValueError, match="unsupported browser"):
+            parse_browser("ie6+Default")
+
+    def test_empty(self):
+        with pytest.raises(ValueError, match="must not be empty"):
+            parse_browser("   ")
+
+    def test_non_string(self):
+        with pytest.raises(ValueError, match="must be a string"):
+            parse_browser(42)  # type: ignore[arg-type]
+
+
 class TestDownloadOptions:
     def test_defaults(self):
         options = DownloadOptions()
@@ -75,6 +108,12 @@ class TestDownloadOptions:
         assert options.embed_metadata is True
         assert options.subtitle_languages == ["en"]
         assert options.filename_template
+        assert options.cookie_file is None
+        assert options.cookies_from_browser is None
+        assert options.proxy is None
+        assert options.concurrent_fragments is None
+        assert options.no_overwrites is False
+        assert options.write_auto_subs is False
 
     def test_validate_returns_self(self):
         options = DownloadOptions()
@@ -109,3 +148,34 @@ class TestDownloadOptions:
         first.subtitle_languages.append("de")
         second = DownloadOptions()
         assert second.subtitle_languages == ["en"]
+
+    def test_cookie_file_only_is_fine(self):
+        assert DownloadOptions(cookie_file="/tmp/c.txt").validate()
+
+    def test_cookies_from_browser_only_is_fine(self):
+        assert DownloadOptions(cookies_from_browser="firefox").validate()
+
+    def test_cookies_from_browser_with_profile_is_fine(self):
+        assert DownloadOptions(cookies_from_browser="chrome+Work").validate()
+
+    def test_both_cookie_sources_conflict(self):
+        with pytest.raises(ValueError, match="at most one"):
+            DownloadOptions(cookie_file="/tmp/c.txt", cookies_from_browser="chrome").validate()
+
+    def test_cookies_from_browser_invalid_browser(self):
+        with pytest.raises(ValueError, match="unsupported browser"):
+            DownloadOptions(cookies_from_browser="netscape").validate()
+
+    def test_concurrent_fragments_zero_invalid(self):
+        with pytest.raises(ValueError, match="concurrent_fragments"):
+            DownloadOptions(concurrent_fragments=0).validate()
+
+    def test_concurrent_fragments_positive_is_fine(self):
+        assert DownloadOptions(concurrent_fragments=8).validate()
+
+    def test_proxy_whitespace_invalid(self):
+        with pytest.raises(ValueError, match="proxy"):
+            DownloadOptions(proxy="   ").validate()
+
+    def test_proxy_is_fine(self):
+        assert DownloadOptions(proxy="socks5://127.0.0.1:1080").validate()

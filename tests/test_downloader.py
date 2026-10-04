@@ -115,6 +115,70 @@ class TestBuildYdlOptions:
         options = YouTubeDownloader().build_ydl_options(DownloadOptions(retries=7))
         assert options["retries"] == 7
 
+    def test_cookie_file_passthrough(self):
+        options = YouTubeDownloader().build_ydl_options(
+            DownloadOptions(cookie_file="/tmp/cookies.txt")
+        )
+        assert options["cookiefile"] == "/tmp/cookies.txt"
+        assert "cookiesfrombrowser" not in options
+
+    def test_cookies_from_browser_passthrough(self):
+        options = YouTubeDownloader().build_ydl_options(
+            DownloadOptions(cookies_from_browser="chrome+Default")
+        )
+        # yt-dlp unpacks this value with `*`, so it must be a 4-tuple, not a
+        # string (a string would unpack into its characters and crash).
+        assert isinstance(options["cookiesfrombrowser"], tuple)
+        assert options["cookiesfrombrowser"] == ("chrome", "Default", None, None)
+        assert "cookiefile" not in options
+
+    def test_cookies_from_browser_no_profile(self):
+        options = YouTubeDownloader().build_ydl_options(
+            DownloadOptions(cookies_from_browser="firefox")
+        )
+        assert options["cookiesfrombrowser"] == ("firefox", None, None, None)
+
+    def test_proxy_passthrough(self):
+        options = YouTubeDownloader().build_ydl_options(
+            DownloadOptions(proxy="socks5://127.0.0.1:1080")
+        )
+        assert options["proxy"] == "socks5://127.0.0.1:1080"
+
+    def test_concurrent_fragments_passthrough(self):
+        options = YouTubeDownloader().build_ydl_options(DownloadOptions(concurrent_fragments=4))
+        assert options["concurrent_fragment_downloads"] == 4
+
+    def test_no_overwrites_passthrough(self):
+        options = YouTubeDownloader().build_ydl_options(DownloadOptions(no_overwrites=True))
+        assert options["nooverwrites"] is True
+
+    def test_new_options_absent_by_default(self):
+        options = YouTubeDownloader().build_ydl_options(DownloadOptions())
+        for key in (
+            "cookiefile",
+            "cookiesfrombrowser",
+            "proxy",
+            "concurrent_fragment_downloads",
+            "nooverwrites",
+            "writeautomaticsub",
+        ):
+            assert key not in options
+
+    def test_write_auto_subs(self):
+        options = YouTubeDownloader().build_ydl_options(
+            DownloadOptions(write_auto_subs=True, subtitle_languages=["en", "de"])
+        )
+        assert options["writeautomaticsub"] is True
+        assert options["subtitleslangs"] == ["en", "de"]
+        assert "writesubtitles" not in options
+
+    def test_write_auto_subs_with_manual_subs(self):
+        options = YouTubeDownloader().build_ydl_options(
+            DownloadOptions(write_auto_subs=True, download_subtitles=True)
+        )
+        assert options["writeautomaticsub"] is True
+        assert options["writesubtitles"] is True
+
     def test_invalid_options_raise(self):
         with pytest.raises(QualityError):
             YouTubeDownloader().build_ydl_options(DownloadOptions(quality="sparkly"))
@@ -130,8 +194,50 @@ class TestDownload:
         assert result.ok is True
         assert result.error is None
         assert result.filename == "Fake Title [abc123].mp4"
+        assert result.filenames == ["Fake Title [abc123].mp4"]
+        assert result.failed == []
         assert len(fake_yt_dlp.instances) == 1
         assert fake_yt_dlp.instances[0].params["progress_hooks"]
+
+    def test_multi_file_playlist_success(self, fake_yt_dlp):
+        fake_yt_dlp.post_hook_files = ["a.mp4", "b.mp4", "c.mp4"]
+        result = YouTubeDownloader(progress=False).download(
+            "https://www.youtube.com/playlist?list=x"
+        )
+        assert result.ok is True
+        assert result.filename == "c.mp4"
+        assert result.filenames == ["a.mp4", "b.mp4", "c.mp4"]
+        assert result.failed == []
+        assert result.error is None
+
+    def test_partial_playlist_reports_failures(self, fake_yt_dlp):
+        fake_yt_dlp.post_hook_files = ["a.mp4", "b.mp4"]
+        fake_yt_dlp.failed_errors = [
+            "ERROR: c.mp4: Video unavailable",
+            "ERROR: d.mp4: Geo-restricted",
+        ]
+        fake_yt_dlp.retcode = 1
+        result = YouTubeDownloader(progress=False).download(
+            "https://www.youtube.com/playlist?list=x"
+        )
+        assert result.ok is True  # partial success
+        assert result.filenames == ["a.mp4", "b.mp4"]
+        assert len(result.failed) == 2
+        assert any("c.mp4" in m for m in result.failed)
+        assert result.error is not None
+
+    def test_total_failure_no_files(self, fake_yt_dlp):
+        fake_yt_dlp.post_hook_files = []
+        fake_yt_dlp.failed_errors = ["ERROR: only item: unavailable"]
+        fake_yt_dlp.retcode = 1
+        result = YouTubeDownloader(progress=False).download(
+            "https://www.youtube.com/playlist?list=x"
+        )
+        assert result.ok is False
+        assert result.filenames == []
+        assert result.filename is None
+        assert result.failed == ["ERROR: only item: unavailable"]
+        assert result.error == "no files were downloaded"
 
     def test_failure_returns_result(self, fake_yt_dlp):
         fake_yt_dlp.raise_download_error = RuntimeError("network down")
